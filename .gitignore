@@ -1,0 +1,4 @@
+/.coverage
+/.opencode
+/.pytest_cache
+/.venv
