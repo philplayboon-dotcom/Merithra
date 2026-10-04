@@ -27,40 +27,43 @@
 ### 1.2 Kern-Komponenten
 | Modul | Beschreibung | Zuständigkeit |
 |-------|--------------|---------------|
-| **core/engine** | Game State Machine, Rules Engine | CODE_ARCHITECT |
-| **core/cards** | Kartendefinitionen, Registry, Effects | CODE_ARCHITECT + CODE_IMPLEMENTOR |
-| **core/pve** | Encounter System, Boss AI, Phases | CODE_ARCHITECT + TEST_ENGINEER |
-| **core/guild** | Guild System, Bank, Ranks | CODE_ARCHITECT |
-| **core/progression** | XP, Reputation, Collections | CODE_ARCHITECT |
-| **client/flet** | UI Komponenten, Screen Management | FRONTEND_SPECIALIST |
-| **server/** | Networking, Matchmaking, State Sync | DEVOPS_ENGINEER (später) |
-| **tools/** | Card Editor, Balance Tools | CODE_ARCHITECT |
-| **llm/integration** | Local LLM Integration via Ollama (Strategy + Companion) | CODE_ARCHITECT |
+| **core/engine** | Game State Machine, Match-Lifecycle, Rules Engine | CODE_ARCHITECT |
+| **core/cards** | Kartendefinitionen, Registry, Effect System | CODE_ARCHITECT + CODE_IMPLEMENTOR |
+| **core/pve** | PvE-Gegner, KI-Heuristiken, Boss-Phasen, Begegnungen | CODE_ARCHITECT + TEST_ENGINEER |
+| **core/world** | Weltkarte, Regionen, Städte, Reiserouten, Standort | CODE_ARCHITECT |
+| **core/economy** | Inventar, Händler, Güter, Währungen, Transaktionen | CODE_ARCHITECT + CODE_IMPLEMENTOR |
+| **core/professions** | Berufe, Rezepte, Rohstoffe, Crafting-Engine | CODE_ARCHITECT + CODE_IMPLEMENTOR |
+| **core/quests** | Story-Kapitel, Haupt-/Nebenquests, Questlog, Dialoge | CODE_ARCHITECT |
+| **core/storage** | Versioniertes Savegame-System, Migrationen, Atomares Speichern | CODE_ARCHITECT + DATABASE_SPECIALIST |
+| **client/** | Flet UI (GameBoard, Map, Städte, Deckbau, Inventar, Crafting) | FRONTEND_SPECIALIST |
+| **tools/** | Card Editor, Balance Tools, Content-Generatoren | CODE_ARCHITECT |
+| **llm/integration** | Lokale LLM-Integration via Ollama (Strategie + Companion) | CODE_ARCHITECT |
 
 ### 1.3 Datenfluss
 1. **User Input** → Flet UI Events
 2. **Validation** → core/engine Rules Check
-3. **State Update** → core/engine State Machine
+3. **State Update** → core/engine State Machine & Match Manager
 4. **Rendering** → Flet UI Refresh
-5. **Network** (später) → Server ↔ Client Sync
+5. **Persistence** → core/storage (Sichere Spielstand-Aktualisierung bei Meilensteinen/Transaktionen)
 6. **LLM Advisory** → Strategy-Agent (Qwen3 4B) schlägt Zug vor → Regel-Engine validiert Legalität → Spiel führt Zug aus
-7. **LLM Companion** → Companion-LLM (Llama 3.2 3B) konvertiert mit Spieler, erklärt Züge
+7. **LLM Companion** → Companion-LLM (Llama 3.2 3B) konversiert mit Spieler, erklärt Züge
 
 ### 1.4 Entscheidungs-Prinzipien
 - **Deterministische Engine:** Alle Spiellogik im Client, Replays möglich durch exakte Zustandswiederholung
-- **Data-Driven:** Karten und Encounters in JSON/YAML, nicht Hardcode
+- **Data-Driven:** Karten, Rezepte, Quests, Händlerangebote und Encounters in JSON/YAML
 - **Separation of Concerns:** UI getrennt von Geschäftslogik
-- **Testbarkeit:** Jedes Modul hat Unit-Tests
+- **Persistenter Kampagnen-Fortschritt:** Kein Permadeath, Niederlagen beschädigen niemals den Spielstand, Kämpfe beliebig wiederholbar
+- **Testbarkeit:** Jedes Modul hat automatisierte Unit- & Integrationstests
 - **LLM Integration:** Game State wird strukturiert als JSON an lokale Ollama-LLMs übergeben; Engine behält absolute Autorität über Spielablauf
 
 ---
 
 ## 2. Modul-Detail-Design
 
-### 2.1 core/engine - Game State Machine
+### 2.1 core/engine - Game State Machine & Match-Lifecycle
 **Zustände (Phasen):**
 ```
-MULLIGAN → TURN_START → DRAW → MAIN_PHASE → COMBAT → TURN_END → NEXT_TURN
+MULLIGAN → TURN_START → DRAW → MAIN_PHASE → COMBAT → TURN_END → NEXT_TURN → GAME_OVER (VICTORY / DEFEAT)
 ```
 
 **Events (nicht-exhaustiv):**
@@ -71,9 +74,9 @@ MULLIGAN → TURN_START → DRAW → MAIN_PHASE → COMBAT → TURN_END → NEXT
 - `on_hero_power_used`
 - `on_turn_start`
 - `on_turn_end`
-- `on_game_end`
+- `on_game_end` (Übergabe von Belohnungen bei Sieg; Retry-Option bei Niederlage)
 
-**Pattern:** Event-Driven mit observer Pattern für UI Updates
+**Pattern:** Event-Driven mit Observer-Pattern für UI Updates
 
 ### 2.2 core/cards - Kartensystem
 **Definition Format (JSON/YAML Beispiel):**
@@ -93,12 +96,12 @@ keywords: [None]
 text: "Verursache 6 Schaden."
 ```
 
-**Effect System (kompositionbasiert):**
+**Effect System (kompositionsbasiert):**
 - Effects werden zur Runtime angewandt
 - Keine tiefen Vererbungsbäume
 - Effect-Chain möglich (z. B. Battlecry → Deathrattle)
 
-### 2.3 core/pve - PvE-Engine
+### 2.3 core/pve - PvE-Engine & KI
 **Encounter Scripting (YAML Beispiel):**
 ```yaml
 encounter_id: "boss_brambol"
@@ -113,7 +116,7 @@ phase_1:
 
 phase_2:
   hp: 30
-  enrage_timer: 180  # Sekunden bis Enrage
+  enrage_timer: 180  # Runden/Sekunden bis Enrage
   abilities:
     - OVERLOAD
     - BERSERK
@@ -126,22 +129,30 @@ phase_3:
 ```
 
 **AI-System:**
-- Behavior Trees (Python-basiert)
-- Scripted Patterns für Standard-Bosse
-- Parameter-gesteuerte Schwierigkeit (HP, Damage, Mechaniken)
+- Regelkonforme Aktionsauswahl (Legale Aktionen filtern, Board-Bewertung, Mana-Effizienz, Face-Damage)
+- Optionale Strategy-LLM-Anbindung (Qwen3 4B) für fortgeschrittene Züge
+- Skriptbare Boss-Phasen und Verhaltensmuster
 
-### 2.4 core/guild - Gilden-System
-**Datenmodell:**
-- Guild: id, name, level, xp, perks, officer_roles
-- Member: id, name, rank, contribution, last_online
-- Bank: items, gold, cards_loaned
+### 2.4 core/world, core/economy & core/professions
+**Welt & Städte (`core/world`):**
+- Regionen mit verbundenen Städten und Routen
+- Freischaltung über Story-Fortschritt
+- Bereisbar ohne Permadeath-Verlust
 
-**Workflow:**
-1. Player creates/joins guild
-2. Guild activities → XP → Level up
-3. Perks unlocked (Gold+, Card Slots+, Raid Bonus+)
-4. Weekly Raid scheduling
-5. Guild Wars (PvE competition)
+**Wirtschaft & Handel (`core/economy`):**
+- Inventar mit Stapelmengen für Rohstoffe, Verbrauchsgüter und Handelswaren
+- Händler mit regionalen Preisunterschieden und dynamischen/festen Beständen
+- Atomare Transaktionen (Guthaben, Items, Karten)
+
+**Berufe & Crafting (`core/professions`):**
+- Berufsfortschritt mit Erfahrung (XP) und Stufen
+- Rezepte mit Zutaten, Werkstattanforderungen und Ergebnissen
+- Transaktionssichere Herstellung (Materialverbrauch, Output, XP)
+
+### 2.5 core/storage - Versioniertes Speichersystem
+- Speicherung des vollständigen Fortschritts (Sammlung, Decks, Inventar, Gold, Quests, Standort, Berufe)
+- Versioniertes Schema mit automatischen Migrationspfaden
+- Atomares Schreiben (Safe Save / Temp-File Swap) gegen Datenverlust
 
 ---
 
@@ -149,28 +160,26 @@ phase_3:
 
 ### 3.1 Sprache & Runtime
 - **Python 3.11+** (typisiert mit type hints)
-- **Performance-critical:** Optional Cython oder NumPy für schwere Berechnungen
 
 ### 3.2 UI Framework
 - **Flet** (Flutter-basiert)
-- **Warum Flet?** Cross-Platform (Desktop/Web/Android), Single Codebase, guter Python-Integrations
-- **Responsive Design:** `page.window_width` basierende Layouts
+- **Warum Flet?** Cross-Platform (Desktop/Web/Android), Single Codebase, native Python-Integration
+- **Responsive Design:** `page.window_width` basierte Layouts
 
-### 3.3 Datenpersistenz (MVP)
-- **SQLite** für lokale Client-Speicherung
-- **JSON** für Kartendaten und Encounter-Scripts
-- **Geplante Migration** auf PostgreSQL bei Server-Implementation
+### 3.3 Datenpersistenz
+- **JSON / SQLite** für lokale Speicherung
+- Versioniertes Savegame mit Migrations-Layer
+- **JSON / YAML** für Kartendaten, Rezepte, Dialoge und Encounter-Scripts
 
-### 3.4 Zukunft Server-Technologie
-- **Option A:** FastAPI + WebSockets (Python-Ökosystem konsistent)
-- **Option B:** Go + gRPC (Performance- Fokus)
-- **Entscheidung:** Zur Phase 3 (Multiplayer) treffen
+### 3.4 LLM Integration (Lokal via Ollama)
+- **Strategie:** Qwen3 4B (JSON output, strikte Auswahl legaler Züge)
+- **Companion:** Llama 3.2 3B (Rollenspiel, Erklärungen, Chat)
+- Lokale REST-Schnittstelle `http://127.0.0.1:11434/api/chat`
 
 ### 3.5 Testing Strategy
-- **Unit Tests:** pytest für core/engine, core/cards
-- **Integration Tests:** Complete game flows
-- **Replay Validation:** Deterministic state reproduction
-- **Performance Tests:** Flet UI frame rates
+- **Unit Tests:** pytest für core/engine, core/cards, core/pve, core/storage, core/economy, core/professions
+- **Integration Tests:** Vollständige Partien, Save/Load-Zyklen, Handels- & Crafting-Transaktionen
+- **Replay Validation:** Deterministische Zustandswiederholung
 
 ---
 
@@ -179,9 +188,9 @@ phase_3:
 ### 4.1 Branch-Strategie
 ```
 main:   Production-ready Code
-dev:    Integrierende Entwicklungszweig
+dev:    Integrierender Entwicklungszweig
 feature/*: Feature-Arbeitszweige (kurzlebig)
-hotfix/*: Produktsche Bugs
+hotfix/*: Produktive Bugfixes
 ```
 
 ### 4.2 Commit-Konventionen
@@ -189,7 +198,7 @@ hotfix/*: Produktsche Bugs
 feat:     Neue Funktion
 fix:      Bugbehebung
 docs:     Dokumentationsänderungen
-style:    Formatierung, fehlende Semikolone
+style:    Formatierung
 refactor: Code-Refactoring (keine Funktionsänderung)
 test:     Hinzufügen von Tests
 chore:    Nicht-quellcode Änderungen
@@ -197,44 +206,25 @@ chore:    Nicht-quellcode Änderungen
 
 ### 4.3 Pull Request Regeln
 - **Template ausfüllen:** Description, Testing, Screenshots (wenn UI)
-- **Minimum 1 CODE_REVIEWER** approval
+- **Minimum 1 CODE_REVIEWER** Approval
 - **Kein Merge** bei fehlgeschlagenen Tests
 - **Changelog automatisch** generieren (conventional commits)
 
-### 4.4 Code Review Checkliste
-- [ ] Architektur-Konzept befolgt
-- [ ] Keine harten Code-Werte (alle in Config/JSON)
-- [ ] Tooltips und Accessibility Labels vorhanden
-- [ ] Keine Secrets im Code
-- [ ] Performance-Auswirkung geprüft (bei signifikanten Änderungen)
-- [ ] Tests vorhanden & laufen
+---
+
+## 5. Meilensteine (gemäß ROADMAP.md)
+
+| Meilenstein | Spielbarer Umfang |
+|-------------|-------------------|
+| **Kampfprototyp** | Vollständiger PvE-Kampf mit Wiederholungsoption und verlässlichen Regeln. |
+| **Persistenz-Prototyp** | Sammlung, Deckbau, Inventar, Guthaben und Speichern/Laden bilden einen dauerhaften Fortschrittskreislauf. |
+| **Story-Vertical-Slice** | Ein Story-Abschnitt, zwei Städte, eine verbindende Weltkartenroute, Warenhandel, Stadtaktivitäten und ein Beruf mit Crafting. |
+| **Alpha** | Zentrale Kampagnen-, Weltkarten-, Stadt-, Handels- und Berufssysteme integriert; Inhaltsausbau. |
+| **Beta** | Geplanter Story-Umfang spielbar; Fokus auf Balance, Wirtschaft, UI und Savegame-Stabilität. |
+| **Release** | Getestete Kampagne mit mehreren Städten, Weltkarte, Warenhandel und Berufssystem samt Crafting. |
 
 ---
 
-## 5. Offene Architektur-Fragen
-
-- [ ] **Kartendaten-Format:** JSON vs YAML vs Datenbank? (Entscheidung: JSON für Einfachheit)
-- [ ] **AI-Implementierung:** Behavior Tree Library nutzen oder selbst implementieren?
-- [ ] **Flet Version:** Stable vs Bleeding Edge nehmen?
-- [ ] **Optimierung wann?** Erst ab 500+ simultanen Einheiten profilieren
-- [ ] **Offline-First:** Vollständiges Spiel offline oder nur Basic Mode?
-
----
-
-## 6. Nächste Meilensteine
-
-| Meilenstein | Ziel | Fällig |
-|-------------|------|-------|
-| **M1** | Core Engine MVP (State Machine, basic card types) | Phase 1 |
-| **M2** | Flet GameBoard prototyp (Hand, Board, Mana) | Phase 1 |
-| **M3** | 10+ Basis-Karten implementiert | Phase 1 |
-| **M4** | AI Simple Boss (1 Phase) | Phase 2 |
-| **M5** | Kampagne Kapitel 1 (5 Missionen) | Phase 2 |
-| **M6** | Gilden-System Grundgerüst | Phase 3 |
-| **M7** | PvP Matchmaking Basic | Phase 3 |
-
----
-
-*Dokument-Version: 1.0*  
+*Dokument-Version: 1.1*  
 *Status: Foundation Phase*  
-*Erstellt: 2026-10-03*
+*Zuletzt aktualisiert: 2026-10-04*

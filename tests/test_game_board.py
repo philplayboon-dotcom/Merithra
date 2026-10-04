@@ -104,7 +104,7 @@ def test_ready_minion_attacks_opposing_hero() -> None:
 def test_ai_plays_one_affordable_card_and_returns_to_player_turn() -> None:
     player = Player(hero=Hero(name="Player", max_health=30), max_mana=3)
     played_card = _card("ai-played", CardType.SPELL, cost=1)
-    remaining_card = _card("ai-remains", CardType.SPELL, cost=2)
+    remaining_card = _card("ai-remains", CardType.SPELL, cost=4)
     opponent = Player(
         hero=Hero(name="Opponent", max_health=30),
         hand=[played_card, remaining_card],

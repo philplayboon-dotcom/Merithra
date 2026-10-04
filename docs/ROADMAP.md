@@ -133,4 +133,4 @@ Abnahmekriterium: Die geplante Story ist durchspielbar; Reisen, Stadtaktivitäte
 
 ## Dokumentationsabgleich
 
-Diese Roadmap definiert die neue Entwicklungsrichtung. Konzept.md, Design.md und ARCHITECTURE.md müssen anschließend auf Übereinstimmung mit Story-Kampagne, Städten, Weltkarte, Handel und Berufen geprüft werden. Bestehende Beschreibungen eines Run-basierten Progressionsmodells sind dort in einem separaten Dokumentationsschritt zu ersetzen. Diese Änderung betrifft ausschließlich docs/ROADMAP.md.
+Diese Roadmap definiert die verbindliche Entwicklungsrichtung. [`Konzept.md`](file:///C:/Users/jamie/Documents/Repos/Merithra/docs/Konzept.md) und [`ARCHITECTURE.md`](file:///C:/Users/jamie/Documents/Repos/Merithra/docs/ARCHITECTURE.md) wurden auf Übereinstimmung mit der Story-Kampagne, den Städten, der Weltkarte, dem Handel, den Berufen und dem persistenten Speichersystem aktualisiert. Veraltete Beschreibungen von Run-basiertem Permadeath wurden vollständig durch das persistente Fortschrittsmodell ersetzt.

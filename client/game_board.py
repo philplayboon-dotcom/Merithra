@@ -29,6 +29,7 @@ from core.engine.state_machine import (
     StateMachine,
     create_initial_state,
 )
+from core.pve import PvEAI, AIArchetype, ActionType
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +79,9 @@ class GameBoard(ft.Column):
         self._phase_history: List[GamePhase] = []
         self._is_opponent_turn = False
         self._is_building = False
+
+        # PvE AI Engine
+        self.pve_ai = PvEAI(AIArchetype.MIDRANGE)
 
         # UI Components
         self.hero_widget: Optional[ft.Container] = None
@@ -741,7 +745,7 @@ class GameBoard(ft.Column):
                 self._game_log.update()
 
     async def _ai_turn(self) -> None:
-        """Play the first affordable card, then end the AI turn without attacking."""
+        """Execute AI turn using PvEAI engine and return control to player."""
         if not self._is_opponent_turn or self.opponent_player is None:
             return
         if self.state_machine.state.phase != GamePhase.MAIN_PHASE:
@@ -749,15 +753,24 @@ class GameBoard(ft.Column):
 
         await asyncio.sleep(0.2)
         ai_player = self.opponent_player
-        for card in ai_player.hand:
-            if card.cost > ai_player.mana:
-                continue
-            if card.card_type == CardType.MINION and len(ai_player.board) >= 7:
-                continue
-            if self._play_card_for_player(ai_player, card):
-                self._add_log(f"KI spielt: {card.name}")
-                break
 
+        if hasattr(self, "pve_ai") and self.pve_ai:
+            actions = self.pve_ai.play_full_turn(ai_player, self.player, self.state_machine)
+            for act in actions:
+                if act.action_type != ActionType.END_TURN:
+                    self._add_log(f"KI: {act.reason}")
+        else:
+            for card in list(ai_player.hand):
+                if card.cost > ai_player.mana:
+                    continue
+                if card.card_type == CardType.MINION and len(ai_player.board) >= 7:
+                    continue
+                if self._play_card_for_player(ai_player, card):
+                    self._add_log(f"KI spielt: {card.name}")
+                    break
+
+        self._refresh_board()
+        self._refresh_hero_hp()
         self._on_end_turn()
 
 def main(page: ft.Page) -> None:
