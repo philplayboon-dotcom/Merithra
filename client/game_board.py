@@ -3,7 +3,7 @@
 The GameBoard displays the full game state including:
 - Hero area (HP, Mana, Hero Power)
 - 7 Minion board slots
-- 5-card hand with Drag & Drop
+- Scrollable hand with click-to-play interactions
 - Mana crystal bar
 
 Interacts with the Core Engine through:
@@ -18,20 +18,20 @@ import asyncio
 from typing import Any, Callable, List, Optional
 
 import flet as ft
-from client.theme import CombatColors
-from client.components.card_widget import CardWidget, MinionWidget, HeroPowerButton
+
+from client.components.card_widget import CardWidget, HeroPowerButton, MinionWidget
 from client.components.mana_crystal import ManaCrystal
-from core.entities import Player, Hero, Minion, card_registry
+from client.theme import CombatColors
 from core.cards import Card, CardType
+from core.engine.match import MatchManager, MatchStatus
 from core.engine.state_machine import (
-    GamePhase,
     GameEvent,
+    GamePhase,
     StateMachine,
     create_initial_state,
 )
-from core.engine.match import MatchManager, MatchStatus
-from core.pve import PvEAI, AIArchetype, ActionType
-
+from core.entities import Hero, Minion, Player, card_registry
+from core.pve import ActionType, AIArchetype, PvEAI
 
 # ---------------------------------------------------------------------------
 # GameBoard Layout Constants
@@ -99,6 +99,9 @@ class GameBoard(ft.Column):
         self.hero_power_btn: Optional[HeroPowerButton] = None
         self._attack_button: Optional[ft.FilledButton] = None
         self._end_turn_button: Optional[ft.FilledButton] = None
+        self._opponent_hero_widget: Optional[ft.Container] = None
+        self._battlefield_row: Optional[ft.Row] = None
+        self._field_panel_width = 632
         self.minion_slots: List[ft.Control] = []
         self.opponent_minion_slots: List[ft.Control] = []
         self.hand_cards: List[CardWidget] = []
@@ -132,6 +135,7 @@ class GameBoard(ft.Column):
         """Build the complete GameBoard layout."""
         self._is_building = True
         page = self._page_or_none()
+        self._field_panel_width = max(360, (page.width if page else 800) - 168)
         self._turn_banner = self._build_turn_banner()
         # --- Top Section: Hero Area ---
         hero_area = self._build_hero_area()
@@ -171,7 +175,7 @@ class GameBoard(ft.Column):
             spacing=4,
         )
 
-        # Hand area - 5 cards with Drag & Drop
+        # The full hand remains reachable by scrolling when it is wider than the panel.
         hand_container = ft.Container(
             content=self._build_hand_area(),
             expand=3,
@@ -251,7 +255,6 @@ class GameBoard(ft.Column):
         action_controls: list[ft.Control] = [
             self._selected_attacker_panel,
             attack_button,
-            end_turn_button,
             ft.FilledButton(
                 "Heldenmacht",
                 on_click=self._on_hero_power_click,
@@ -312,14 +315,33 @@ class GameBoard(ft.Column):
             width=page.width if page else 800,
             vertical_alignment=ft.CrossAxisAlignment.STRETCH,
         )
+        battlefield_controls = ft.Column(
+            [
+                opponent_board_panel,
+                self._result_banner,
+                ft.Container(height=4),
+                player_board_panel,
+            ],
+            expand=True,
+            spacing=4,
+        )
+        self._battlefield_row = ft.Row(
+            [
+                battlefield_controls,
+                ft.Container(
+                    content=end_turn_button,
+                    width=144,
+                    alignment=ft.Alignment.CENTER,
+                ),
+            ],
+            width=page.width if page else 800,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=8,
+        )
         main_controls: list[ft.Control] = [
             self._turn_banner,
             hero_area,
-            opponent_board_panel,
-            self._result_banner,
-            ft.Container(height=4),
-            player_board_panel,
-            ft.Container(height=4),
+            self._battlefield_row,
             mana_row,
             hand_and_log,
             footer,
@@ -382,7 +404,7 @@ class GameBoard(ft.Column):
             border=ft.Border.all(1, accent),
             border_radius=10,
             padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-            width=(self._page_or_none().width if self._page_or_none() else 800),
+            width=self._field_panel_width,
         )
 
     def _build_hero_area(self) -> ft.Container:
@@ -463,8 +485,8 @@ class GameBoard(ft.Column):
                 width=132,
                 height=7,
             )
-            hero_controls.append(
-                ft.Column(
+            self._opponent_hero_widget = ft.Container(
+                content=ft.Column(
                     [
                         ft.Text(
                             opponent_hero.name,
@@ -478,8 +500,14 @@ class GameBoard(ft.Column):
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     spacing=2,
-                )
+                ),
+                border=ft.Border.all(1, CombatColors.PANEL_HOVER),
+                border_radius=8,
+                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                tooltip="Gegnerheld als Angriffsziel anklicken",
+                on_click=self._on_enemy_hero_select,
             )
+            hero_controls.append(self._opponent_hero_widget)
 
         return ft.Container(
             content=ft.Row(
@@ -494,13 +522,11 @@ class GameBoard(ft.Column):
         )
 
     def _build_hand_area(self) -> ft.Row:
-        """Build the hand area with 5 cards and Drag & Drop support."""
+        """Build a scrollable hand row that contains every card in the player's hand."""
         self._hand_row = ft.Row(
-            [
-                self._empty_hand_slot()
-                for _ in range(5)
-            ],
-            wrap=True,
+            [],
+            wrap=False,
+            scroll=ft.ScrollMode.AUTO,
             alignment=ft.MainAxisAlignment.CENTER,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
@@ -572,21 +598,18 @@ class GameBoard(ft.Column):
         if self._hand_row is None:
             return
 
-        new_cards = []
+        new_cards: list[ft.Control] = []
         self.hand_cards = []
-        for i in range(5):
+        for i in range(max(5, len(self.player.hand))):
             if i < len(self.player.hand):
+                card = self.player.hand[i]
                 card_widget = CardWidget(
-                    card=self.player.hand[i],
+                    card=card,
                     on_play=self._on_card_play_from_hand,
                     on_click=self._on_card_click,
                     on_drag_start=self._on_hand_drag_start,
                     on_drag_end=self._on_hand_drag_end,
-                    is_playable=(
-                        not self._is_opponent_turn
-                        and self.match_status == MatchStatus.IN_PROGRESS
-                        and self.player.hand[i].cost <= self.player.mana
-                    ),
+                    is_playable=self._is_card_playable(card),
                 )
                 self.hand_cards.append(card_widget)
                 new_cards.append(card_widget)
@@ -600,6 +623,29 @@ class GameBoard(ft.Column):
             except RuntimeError:
                 return
             self._hand_row.update()
+
+    def _is_card_playable(self, card: Card) -> bool:
+        """Return whether this hand card can be played in the current board state."""
+        return (
+            self.match_status == MatchStatus.IN_PROGRESS
+            and self.state_machine.state.phase == GamePhase.MAIN_PHASE
+            and not self._is_opponent_turn
+            and card in self.player.hand
+            and card.cost <= self.player.mana
+            and (card.card_type != CardType.MINION or len(self.player.board) < 7)
+        )
+
+    def _can_attack_minion(self, minion: Minion) -> bool:
+        """Return whether the player can select this minion as an attacker now."""
+        return (
+            self.opponent_player is not None
+            and minion.owner is self.player
+            and minion.can_attack
+            and minion.attack > 0
+            and self.match_status == MatchStatus.IN_PROGRESS
+            and self.state_machine.state.phase == GamePhase.MAIN_PHASE
+            and not self._is_opponent_turn
+        )
 
     def _refresh_board(self) -> None:
         """Refresh the board minion slots based on player.board."""
@@ -617,6 +663,7 @@ class GameBoard(ft.Column):
                     minion=minion,
                     on_attack_select=self._on_minion_attack_select,
                     selected_for_attack=minion is self._selected_minion,
+                    can_attack=self._can_attack_minion(minion),
                 )
                 self.minion_slots.append(widget)
                 slots.append(widget)
@@ -688,6 +735,27 @@ class GameBoard(ft.Column):
             except RuntimeError:
                 return
             self._opponent_board_row.update()
+        self._refresh_enemy_hero_target_highlight()
+
+    def _refresh_enemy_hero_target_highlight(self) -> None:
+        """Mark the enemy hero as a legal target only after an attacker is selected."""
+        if self._opponent_hero_widget is None:
+            return
+        selectable = (
+            self._selected_minion is not None
+            and self._can_attack_minion(self._selected_minion)
+            and not self._living_enemy_taunts()
+        )
+        self._opponent_hero_widget.border = ft.Border.all(
+            3 if selectable else 1,
+            CombatColors.ENEMY if selectable else CombatColors.PANEL_HOVER,
+        )
+        if selectable:
+            self._opponent_hero_widget.bgcolor = "#35242B"
+        else:
+            self._opponent_hero_widget.bgcolor = None
+        if self._page_or_none():
+            self._opponent_hero_widget.update()
 
     def _refresh_mana(self) -> None:
         """Update the mana crystal display."""
@@ -817,6 +885,8 @@ class GameBoard(ft.Column):
         if self.state_machine.state.phase != GamePhase.MAIN_PHASE or self._is_opponent_turn:
             self._add_log("Karten können nur in der eigenen Hauptphase gespielt werden.")
             return
+        if card not in self.player.hand:
+            return
 
         if card.cost > self.player.mana:
             self._add_log(f"Zu wenig Mana: {card.name} kostet {card.cost}.")
@@ -875,13 +945,7 @@ class GameBoard(ft.Column):
 
     def _on_minion_attack_select(self, minion: Minion) -> None:
         """Handle minion attack target selection."""
-        if (
-            self._is_opponent_turn
-            or self.match_status != MatchStatus.IN_PROGRESS
-            or self.state_machine.state.phase != GamePhase.MAIN_PHASE
-            or minion.owner is not self.player
-            or not minion.can_attack
-        ):
+        if not self._can_attack_minion(minion):
             return
         self._selected_minion = minion
         self._attack_target = None
@@ -935,6 +999,7 @@ class GameBoard(ft.Column):
             or self.match_status != MatchStatus.IN_PROGRESS
             or self._is_opponent_turn
             or self.state_machine.state.phase != GamePhase.MAIN_PHASE
+            or not self._can_attack_minion(attacker)
             or minion not in self.opponent_player.board
             or not minion.is_alive()
         ):
@@ -946,19 +1011,16 @@ class GameBoard(ft.Column):
             return
 
         self._attack_target = minion
-        if self._selected_attacker_text:
-            self._selected_attacker_text.value = (
-                f"{attacker.card.name} → {minion.card.name} "
-                f"({minion.attack}/{minion.current_health})"
-            )
-            self._selected_attacker_text.color = CombatColors.TEXT_PRIMARY
-        if self._attack_button:
-            self._attack_button.disabled = False
-            self._attack_button.content = f"Angreifen · {minion.card.name}"
-            if self._page_or_none():
-                self._attack_button.update()
-        self._refresh_opponent_board()
-        self._add_log(f"Angriffsziel gewählt: {minion.card.name}.")
+        self._on_attack_button_click(None)
+
+    def _on_enemy_hero_select(self, e: ft.Event[ft.Container]) -> None:
+        """Execute an attack against the enemy hero when the hero is clicked."""
+        if self._selected_minion is None or self.opponent_player is None:
+            return
+        if self._living_enemy_taunts():
+            self._add_log("Spott blockiert den Gegnerhelden. Wähle einen Spott-Diener.")
+            return
+        self._on_attack_button_click(None)
 
     def _on_attack_button_click(self, e: ft.Event[ft.Button]) -> None:
         attacker = self._selected_minion
@@ -969,7 +1031,7 @@ class GameBoard(ft.Column):
             or opponent is None
             or self._is_opponent_turn
             or self.state_machine.state.phase != GamePhase.MAIN_PHASE
-            or not attacker.can_attack
+            or not self._can_attack_minion(attacker)
         ):
             self._add_log("Kein angreifender Minion ausgewählt.")
             return
@@ -980,9 +1042,16 @@ class GameBoard(ft.Column):
 
         if self._attack_target is not None:
             target = self._attack_target
+            if (
+                target not in opponent.board
+                or not target.is_alive()
+                or (self._living_enemy_taunts() and not target.has_taunt)
+            ):
+                self._add_log("Dieser Diener kann nicht als Angriffsziel gewählt werden.")
+                return
             if self.match_manager is not None:
                 attacker_index = self.player.board.index(attacker)
-                target_index = self.opponent_player.board.index(target)
+                target_index = opponent.board.index(target)
                 if not self.match_manager.attack_minion(attacker_index, target_index):
                     self._add_log("Dieser Diener kann nicht als Angriffsziel gewählt werden.")
                     return
@@ -990,8 +1059,26 @@ class GameBoard(ft.Column):
                 target_died = target.take_damage(attacker.attack, self.state_machine.state)
                 attacker_died = attacker.take_damage(target.attack, self.state_machine.state)
                 attacker.can_attack = False
+                self.state_machine.emit(
+                    GameEvent.DAMAGE_DEALT,
+                    source=attacker,
+                    target=target,
+                    amount=attacker.attack,
+                )
                 if target_died:
-                    self.opponent_player.board.remove(target)
+                    self.state_machine.emit(
+                        GameEvent.MINION_DIED,
+                        minion=target,
+                        player=opponent,
+                    )
+                if attacker_died:
+                    self.state_machine.emit(
+                        GameEvent.MINION_DIED,
+                        minion=attacker,
+                        player=self.player,
+                    )
+                if target_died:
+                    opponent.board.remove(target)
                 if attacker_died:
                     self.player.board.remove(attacker)
             self._add_log(

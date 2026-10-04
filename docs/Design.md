@@ -147,6 +147,14 @@ Ziel benötigt: Wähle einen Gegner aus.
 
 Das ist besser als eine allgemeine Ausgabe wie `Ungültige Aktion`.
 
+### Kampfinteraktionen
+
+- Die Hand liegt am unteren Rand. Alle Handkarten bleiben erreichbar; bei mehr Karten als in die Panelbreite passen, lässt sie sich horizontal scrollen.
+- Spielbare Karten erhalten einen hellen Spieler-Akzent. Karten mit zu hohen Kosten sowie Karten in einer inaktiven Phase oder bei vollem Dienerfeld werden abgedunkelt. Ein Klick spielt eine spielbare Karte sofort aus und aktualisiert Hand, Mana und Spielfeld.
+- Angriffsbereite eigene Diener sind hervorgehoben. Zuerst wird der Angreifer angeklickt; danach führt ein Klick auf einen gültigen gegnerischen Diener oder den markierten gegnerischen Helden den Angriff direkt aus. Ein separater Angriffsbutton ist dafür nicht erforderlich.
+- Solange ein lebender gegnerischer Diener Spott hat, wird der gegnerische Held nicht als Ziel markiert und nur Spott-Diener können angegriffen werden.
+- **Zug beenden** bleibt am mittleren rechten Rand des Spielfelds und ist während des gegnerischen Zuges deaktiviert.
+
 ## Kampflog
 
 Das Kampflog soll keine unstrukturierte Liste von Debug-Ausgaben sein. Ereignisse sollen typisiert und visuell unterschieden werden:

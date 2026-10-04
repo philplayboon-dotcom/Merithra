@@ -6,9 +6,10 @@ Supports Drag & Drop interactions via Flet event handlers.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Callable
+from typing import Any, Callable, Optional
 
 import flet as ft
+
 from client.theme import CombatColors
 from core.cards import Card, CardType
 
@@ -53,6 +54,7 @@ class CardWidget(ft.Container):
         self.height = 180
         self.bgcolor = self._get_bgcolor()
         self.border = ft.Border.all(1, self._get_border_color())
+        self.opacity = 1 if self.is_playable else 0.58
         self.border_radius = 8
         self.padding = ft.Padding.all(4)
         self.on_click = self._handle_click
@@ -60,7 +62,7 @@ class CardWidget(ft.Container):
 
     def _get_bgcolor(self) -> str:
         """Use a quiet surface so card information stays more prominent than rarity."""
-        return CombatColors.PANEL_HOVER
+        return CombatColors.PANEL_HOVER if self.is_playable else CombatColors.PANEL
 
     def _get_border_color(self) -> str:
         """Use the player accent to identify cards that can currently be played."""
@@ -176,10 +178,10 @@ class CardWidget(ft.Container):
         self.update()
 
     def _handle_click(self, e: ft.Event[ft.Container]) -> None:
-        if self.on_card_click:
-            self.on_card_click(self.card)
-        if self.on_play:
+        if self.is_playable and self.on_play:
             self.on_play(self.card)
+        elif self.on_card_click and not self.on_play:
+            self.on_card_click(self.card)
 
 
 class MinionWidget(ft.Container):
@@ -193,6 +195,7 @@ class MinionWidget(ft.Container):
         selected_for_attack: bool = False,
         selected_for_target: bool = False,
         target_selectable: bool = False,
+        can_attack: bool | None = None,
         is_enemy: bool = False,
         **kwargs: Any,
     ):
@@ -203,6 +206,7 @@ class MinionWidget(ft.Container):
         self.selected_for_attack = selected_for_attack
         self.selected_for_target = selected_for_target
         self.target_selectable = target_selectable
+        self.can_attack = minion.can_attack if can_attack is None else can_attack
         self.is_enemy = is_enemy
         self.build()
 
@@ -237,7 +241,7 @@ class MinionWidget(ft.Container):
             return CombatColors.RESOURCE
         if self.target_selectable:
             return CombatColors.ENEMY
-        if self.minion.can_attack:
+        if self.can_attack:
             return CombatColors.PLAYER
         return CombatColors.TEXT_SECONDARY
 
@@ -358,7 +362,7 @@ class MinionWidget(ft.Container):
         """Handle click - select this minion as attack target."""
         if self.is_enemy and self.on_target_select and self.target_selectable:
             self.on_target_select(self.minion)
-        elif self.on_attack_select and self.minion.can_attack:
+        elif self.on_attack_select and self.can_attack:
             self.on_attack_select(self.minion)
 
 
