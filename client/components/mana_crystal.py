@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import flet as ft
-from client.theme import ThemeColors
+from client.theme import CombatColors
 
 
 class ManaCrystal(ft.Container):
@@ -37,30 +37,30 @@ class ManaCrystal(ft.Container):
         if self.is_max and not self.is_current:
             # Extra/maximized crystal (red accent)
             self.crystal = ft.Container(
-                content=ft.Icon(ft.Icons.BOLT, size=20, color=ThemeColors.ACCENT_4),
+                content=ft.Icon(ft.Icons.BOLT, size=20, color=CombatColors.RESOURCE),
                 width=30,
                 height=30,
-                border=ft.Border.all(1, ThemeColors.ACCENT_4),
+                border=ft.Border.all(1, CombatColors.RESOURCE),
                 border_radius=6,
                 alignment=ft.Alignment.CENTER,
             )
         elif self.is_current:
             # Current mana crystal (bright red)
             self.crystal = ft.Container(
-                content=ft.Icon(ft.Icons.BOLT, size=20, color=ThemeColors.ACCENT_3),
+                content=ft.Icon(ft.Icons.BOLT, size=20, color=CombatColors.RESOURCE),
                 width=30,
                 height=30,
-                border=ft.Border.all(1, ThemeColors.ACCENT_3),
+                border=ft.Border.all(1, CombatColors.RESOURCE),
                 border_radius=6,
                 alignment=ft.Alignment.CENTER,
             )
         else:
             # Empty/max-only crystal (muted gray)
             self.crystal = ft.Container(
-                content=ft.Icon(ft.Icons.BOLT, size=20, color=ThemeColors.TEXT_MUTED),
+                content=ft.Icon(ft.Icons.BOLT, size=20, color=CombatColors.TEXT_SECONDARY),
                 width=30,
                 height=30,
-                border=ft.Border.all(1, ThemeColors.TEXT_MUTED),
+                border=ft.Border.all(1, CombatColors.TEXT_SECONDARY),
                 border_radius=6,
                 alignment=ft.Alignment.CENTER,
             )

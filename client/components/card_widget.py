@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Optional, Callable
 
 import flet as ft
-from client.theme import ThemeColors
+from client.theme import CombatColors
 from core.cards import Card, CardType
 
 
@@ -31,6 +31,7 @@ class CardWidget(ft.Container):
         on_click: Optional[Callable[[Card], None]] = None,
         on_drag_start: Optional[Callable[[], None]] = None,
         on_drag_end: Optional[Callable[[], None]] = None,
+        is_playable: bool = True,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
@@ -39,6 +40,7 @@ class CardWidget(ft.Container):
         self.on_card_click = on_click
         self.on_drag_start = on_drag_start
         self.on_drag_end = on_drag_end
+        self.is_playable = is_playable
         # Drag state
         self._is_dragging = False
         self._drag_offset = (0, 0)
@@ -57,20 +59,12 @@ class CardWidget(ft.Container):
         self.data = self.card
 
     def _get_bgcolor(self) -> str:
-        """Get background color based on card rarity using theme colors."""
-        rarity_colors = {
-            "COMMON": ThemeColors.ACCENT_1,
-            "RARE": ThemeColors.ACCENT_2,
-            "EPIC": ThemeColors.ACCENT_3,
-            "LEGENDARY": ThemeColors.ACCENT_4,
-            "FREE": ThemeColors.TEXT_MUTED,
-        }
-        return rarity_colors.get(self.card.rarity.name, ThemeColors.DARKER_BG)
+        """Use a quiet surface so card information stays more prominent than rarity."""
+        return CombatColors.PANEL_HOVER
 
     def _get_border_color(self) -> str:
-        """Get border color: gold border if selected for attack."""
-        # This will be updated when minion is selected for attack
-        return ThemeColors.ACCENT_4 if getattr(self, "_selected_for_attack", False) else ThemeColors.TEXT_MUTED
+        """Use the player accent to identify cards that can currently be played."""
+        return CombatColors.PLAYER if self.is_playable else "#34415A"
 
     def _build_card_content(self) -> ft.Control:
         """Build the inner card content showing card stats."""
@@ -80,24 +74,34 @@ class CardWidget(ft.Container):
         # Card name
         name_text = ft.Text(
             self.card.name,
-            size=10,
+            size=13,
             weight=ft.FontWeight.BOLD,
-            color=ThemeColors.TEXT_PRIMARY,
+            color=CombatColors.TEXT_PRIMARY,
             overflow=ft.TextOverflow.ELLIPSIS,
+            max_lines=2,
         )
 
-        # Card cost
-        cost_text = ft.Text(
-            f"💰 {self.card.cost}",
-            size=10,
-            color=ThemeColors.ACCENT_4,
+        cost_badge = ft.Container(
+            content=ft.Text(
+                str(self.card.cost),
+                size=12,
+                weight=ft.FontWeight.BOLD,
+                color=CombatColors.BACKGROUND,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            width=24,
+            height=24,
+            bgcolor=CombatColors.RESOURCE,
+            border_radius=12,
+            alignment=ft.Alignment.CENTER,
         )
 
         # Attack/Health (for minions)
         stats_text = ft.Text(
             "",
-            size=10,
-            color=ThemeColors.TEXT_PRIMARY,
+            size=12,
+            weight=ft.FontWeight.BOLD,
+            color=CombatColors.PLAYER,
         )
 
         if self.card.card_type == CardType.MINION:
@@ -110,28 +114,27 @@ class CardWidget(ft.Container):
         # Card text/tooltip
         text_text = ft.Text(
             self.card.text,
-            size=8,
-            color=ThemeColors.TEXT_MUTED,
+            size=10,
+            color=CombatColors.TEXT_SECONDARY,
             overflow=ft.TextOverflow.ELLIPSIS,
-            max_lines=2,
+            max_lines=3,
         )
 
         # Drag area indicator (dashed border when draggable)
         drag_indicator = ft.Container(
-            content=ft.Icon(ft.Icons.DRAG_HANDLE, size=12, color=ThemeColors.TEXT_MUTED),
+            content=ft.Icon(ft.Icons.DRAG_HANDLE, size=12, color=CombatColors.TEXT_SECONDARY),
             width=120,
-            height=15,
+            height=12,
             alignment=ft.Alignment.CENTER,
         )
 
         return ft.Column(
             [
                 ft.Row(
-                    [type_icon, ft.Text(str(self.card.cost), size=12, color=ThemeColors.ACCENT_4)],
+                    [cost_badge, type_icon],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
                 ft.Row([name_text], alignment=ft.MainAxisAlignment.CENTER),
-                ft.Row([cost_text], alignment=ft.MainAxisAlignment.CENTER),
                 ft.Row([stats_text], alignment=ft.MainAxisAlignment.CENTER),
                 ft.Row([text_text], alignment=ft.MainAxisAlignment.CENTER, expand=True),
                 drag_indicator,
@@ -151,7 +154,7 @@ class CardWidget(ft.Container):
             CardType.LOCATION: ft.Icons.LOCATION_ON,
         }
         icon = icons.get(self.card.card_type, ft.Icons.INSERT_DRIVE_FILE)
-        return ft.Icon(icon, size=16, color="#ffffff")
+        return ft.Icon(icon, size=16, color=CombatColors.TEXT_SECONDARY)
 
     # --- Drag & Drop Event Handlers ---
 
@@ -186,12 +189,21 @@ class MinionWidget(ft.Container):
         self,
         minion: Any,  # Minion object from core.entities
         on_attack_select: Optional[Callable[[Any], None]] = None,
+        on_target_select: Optional[Callable[[Any], None]] = None,
+        selected_for_attack: bool = False,
+        selected_for_target: bool = False,
+        target_selectable: bool = False,
+        is_enemy: bool = False,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
         self.minion = minion
         self.on_attack_select = on_attack_select
-        self._is_attacking = False
+        self.on_target_select = on_target_select
+        self.selected_for_attack = selected_for_attack
+        self.selected_for_target = selected_for_target
+        self.target_selectable = target_selectable
+        self.is_enemy = is_enemy
         self.build()
 
     def build(self) -> None:
@@ -200,10 +212,10 @@ class MinionWidget(ft.Container):
         bg_opacity = 1.0 if self.minion.is_alive() else 0.3
 
         self.content = self._build_minion_content()
-        self.width = 100
-        self.height = 80
+        self.width = 124
+        self.height = 104
         self.bgcolor = self._get_bgcolor(bg_opacity)
-        self.border = ft.Border.all(2, self._get_attack_border_color())
+        self.border = ft.Border.all(3 if self.selected_for_attack else 2, self._get_attack_border_color())
         self.border_radius = 6
         self.padding = ft.Padding.all(2)
         self.on_click = self._on_click
@@ -211,39 +223,89 @@ class MinionWidget(ft.Container):
 
     def _get_bgcolor(self, opacity: float) -> str:
         """Get background color with opacity."""
-        return f"rgba(18, 18, 24, {opacity})"
+        if self.selected_for_attack:
+            return f"rgba(92, 169, 255, {opacity})"
+        if self.is_enemy:
+            return f"rgba(229, 101, 101, {opacity * 0.18})"
+        return f"rgba(32, 42, 64, {opacity})"
 
     def _get_attack_border_color(self) -> str:
         """Get border color indicating attack capability."""
+        if self.selected_for_attack:
+            return CombatColors.PLAYER
+        if self.selected_for_target:
+            return CombatColors.RESOURCE
+        if self.target_selectable:
+            return CombatColors.ENEMY
         if self.minion.can_attack:
-            return ThemeColors.ACCENT_3  # Subtle red border
-        return ThemeColors.TEXT_MUTED  # Gray: cannot attack
+            return CombatColors.PLAYER
+        return CombatColors.TEXT_SECONDARY
 
     def _build_minion_content(self) -> ft.Control:
         """Build the minion visual content."""
+        name_text = ft.Text(
+            self.minion.card.name,
+            size=12,
+            weight=ft.FontWeight.BOLD,
+            color=CombatColors.TEXT_PRIMARY,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+        selection_text = ft.Text(
+            "ANGREIFER",
+            size=8,
+            weight=ft.FontWeight.BOLD,
+            color=CombatColors.TEXT_PRIMARY,
+            visible=self.selected_for_attack,
+        )
+        keyword_labels = []
+        if self.minion.has_taunt:
+            keyword_labels.append(
+                ft.Text(
+                    "SPOTT",
+                    size=9,
+                    weight=ft.FontWeight.BOLD,
+                    color=CombatColors.ENEMY,
+                )
+            )
+        if self.minion.divine_shield:
+            keyword_labels.append(
+                ft.Text(
+                    "SCHILD",
+                    size=9,
+                    weight=ft.FontWeight.BOLD,
+                    color=CombatColors.RESOURCE,
+                )
+            )
+        keywords_row = ft.Row(
+            keyword_labels,
+            spacing=4,
+            alignment=ft.MainAxisAlignment.CENTER,
+            visible=bool(keyword_labels),
+        )
         # Attack
         attack_text = ft.Text(
             str(self.minion.attack),
             size=18,
             weight=ft.FontWeight.BOLD,
-            color=ThemeColors.ACCENT_4,
+            color=CombatColors.RESOURCE,
         )
 
         # Health
         health_text = ft.Text(
             str(self.minion.current_health),
             size=18,
-            color=ThemeColors.HP_LOW,
+            color=CombatColors.ENEMY if self.is_enemy else CombatColors.PLAYER,
         )
 
         # Taunt indicator
         taunt_indicator = ft.Container()
         if self.minion.has_taunt:
             taunt_indicator = ft.Container(
-                content=ft.Icon(ft.Icons.SECURITY, size=14, color=ThemeColors.ACCENT_4),
+                content=ft.Icon(ft.Icons.SECURITY, size=14, color=CombatColors.ENEMY),
                 width=20,
                 height=20,
-                border=ft.Border.all(1, ThemeColors.ACCENT_4),
+                border=ft.Border.all(1, CombatColors.ENEMY),
                 border_radius=10,
                 alignment=ft.Alignment.CENTER,
             )
@@ -252,10 +314,10 @@ class MinionWidget(ft.Container):
         shield_indicator = ft.Container()
         if self.minion.divine_shield:
             shield_indicator = ft.Container(
-                content=ft.Icon(ft.Icons.SHIELD, size=14, color=ThemeColors.TEXT_PRIMARY),
+                content=ft.Icon(ft.Icons.SHIELD, size=14, color=CombatColors.TEXT_PRIMARY),
                 width=20,
                 height=20,
-                border=ft.Border.all(1, ThemeColors.TEXT_PRIMARY),
+                border=ft.Border.all(1, CombatColors.TEXT_PRIMARY),
                 border_radius=10,
                 alignment=ft.Alignment.CENTER,
             )
@@ -264,7 +326,7 @@ class MinionWidget(ft.Container):
         windfury_indicator = ft.Container()
         if self.minion.windfury > 0:
             windfury_indicator = ft.Container(
-                content=ft.Icon(ft.Icons.SPORTS_MARTIAL_ARTS, size=12, color=ThemeColors.ACCENT_3),
+                content=ft.Icon(ft.Icons.SPORTS_MARTIAL_ARTS, size=12, color=CombatColors.PLAYER),
                 width=16,
                 height=16,
                 alignment=ft.Alignment.CENTER,
@@ -272,6 +334,12 @@ class MinionWidget(ft.Container):
 
         return ft.Column(
             [
+                ft.Row(
+                    [name_text, selection_text],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                keywords_row,
                 ft.Row(
                     [attack_text, taunt_indicator],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -283,15 +351,15 @@ class MinionWidget(ft.Container):
             ],
             alignment=ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=1,
+            spacing=2,
         )
 
     def _on_click(self, e: ft.Event[ft.Container]) -> None:
         """Handle click - select this minion as attack target."""
-        if self.on_attack_select and self.minion.can_attack:
+        if self.is_enemy and self.on_target_select and self.target_selectable:
+            self.on_target_select(self.minion)
+        elif self.on_attack_select and self.minion.can_attack:
             self.on_attack_select(self.minion)
-            self._selected_for_attack = True
-            self.update()
 
 
 class HeroPowerButton(ft.Container):
@@ -324,7 +392,7 @@ class HeroPowerButton(ft.Container):
         self._label = ft.Text(
             "Heldenmacht",
             size=12,
-            color="#ffffff" if can_use else ThemeColors.TEXT_MUTED,
+            color=CombatColors.TEXT_PRIMARY if can_use else CombatColors.TEXT_SECONDARY,
         )
 
         self.button = ft.FilledButton(
@@ -337,12 +405,12 @@ class HeroPowerButton(ft.Container):
             ),
             width=self.width or 100,
             height=50,
-            bgcolor=ThemeColors.DARKER_BG if can_use else ThemeColors.DARKEST_BG_V2,
+            bgcolor=CombatColors.PANEL_HOVER if can_use else CombatColors.PANEL,
             disabled=not can_use,
-            color="#ffffff" if can_use else ThemeColors.TEXT_MUTED,
+            color=CombatColors.TEXT_PRIMARY if can_use else CombatColors.TEXT_SECONDARY,
             style=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=8),
-                overlay_color=ThemeColors.BORDER_TRANSPARENT,
+                overlay_color="rgba(255, 255, 255, 0.08)",
             ),
             on_click=self._on_click,
         )
@@ -354,9 +422,11 @@ class HeroPowerButton(ft.Container):
     def _update_mana_display(self) -> None:
         """Update button appearance based on current mana."""
         can_use = self.player_mana >= 2 and self.hero_power_card is not None
-        self.button.bgcolor = ThemeColors.DARKER_BG if can_use else ThemeColors.DARKEST_BG_V2
+        self.button.bgcolor = CombatColors.PANEL_HOVER if can_use else CombatColors.PANEL
         self.button.disabled = not can_use
-        self._label.color = ThemeColors.TEXT_PRIMARY if can_use else ThemeColors.TEXT_MUTED
+        self._label.color = (
+            CombatColors.TEXT_PRIMARY if can_use else CombatColors.TEXT_SECONDARY
+        )
         try:
             if getattr(self, 'page', None) is not None:
                 self.update()

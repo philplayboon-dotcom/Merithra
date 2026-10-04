@@ -6,7 +6,7 @@ Start with ``flet run client/main.py``.
 from __future__ import annotations
 
 import flet as ft
-from client.game_board import main
+from client.app import main
 
 
 if __name__ == "__main__":

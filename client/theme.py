@@ -86,6 +86,20 @@ class ThemeColors:
     COOLDOWN_OVERLAY: str = "rgba(255, 255, 255, 0.15)"  # Cooldown tint
 
 
+class CombatColors:
+    """Semantic colors from the tactical combat UI design."""
+
+    BACKGROUND: str = "#0B1020"
+    PANEL: str = "#151C2E"
+    PANEL_HOVER: str = "#202A40"
+    TEXT_PRIMARY: str = "#F4F7FB"
+    TEXT_SECONDARY: str = "#9AA7BD"
+    RESOURCE: str = "#E7B85C"
+    PLAYER: str = "#5CA9FF"
+    ENEMY: str = "#E56565"
+    SUCCESS: str = "#68C98B"
+
+
 # ---------------------------------------------------------------------------
 # Gradients — for buttons, orbs, Glow effects
 # ---------------------------------------------------------------------------
