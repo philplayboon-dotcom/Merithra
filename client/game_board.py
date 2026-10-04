@@ -754,7 +754,7 @@ class GameBoard(ft.Column):
             self._opponent_hero_widget.bgcolor = "#35242B"
         else:
             self._opponent_hero_widget.bgcolor = None
-        if self._page_or_none():
+        if not self._is_building and self._page_or_none():
             self._opponent_hero_widget.update()
 
     def _refresh_mana(self) -> None:

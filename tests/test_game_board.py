@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
+
+import flet as ft
 
 from client.game_board import GameBoard
 from core.cards import Card, CardType, Rarity
@@ -131,6 +134,25 @@ def test_affordable_hand_card_is_subdued_outside_main_phase() -> None:
     assert card in player.hand
     assert player.board == []
     assert player.mana == 1
+
+
+def test_build_does_not_update_unattached_enemy_hero_widget(
+    monkeypatch,
+) -> None:
+    board = GameBoard(
+        Player(hero=Hero(name="Player", max_health=30)),
+        Player(hero=Hero(name="Opponent", max_health=30)),
+    )
+    monkeypatch.setattr(board, "_page_or_none", lambda: SimpleNamespace(width=960))
+
+    def reject_unattached_update(control: ft.Control) -> None:
+        raise RuntimeError("Control must be added to the page first")
+
+    monkeypatch.setattr(ft.Container, "update", reject_unattached_update)
+
+    board.build()
+
+    assert board._opponent_hero_widget is not None
 
 
 def test_playing_minion_updates_player_and_engine_state() -> None:
